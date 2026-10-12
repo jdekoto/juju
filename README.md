@@ -32,11 +32,11 @@ fn main() -> i32:
 ```
 
 ## feats:
-python like syntax
-static typed declarations
-explicit memory management
-a really good C FFI
-asm blocks
+python like syntax</br>
+static typed declarations</br>
+explicit memory management</br>
+a really good C FFI</br>
+asm blocks</br>
 
 ## building and usage
 just run `odin build src/ --out:juju` and you should be good to go.
