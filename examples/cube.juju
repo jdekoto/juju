@@ -1,0 +1,110 @@
+# juju cube: bare-metal PS1, no SDK
+
+const GP0    = bitcast(*volatile u32, usize(0x1F801810))
+const GP1    = bitcast(*volatile u32, usize(0x1F801814))
+const I_STAT = bitcast(*volatile u32, usize(0x1F801070))
+
+struct V3:
+    x: i32
+    y: i32
+    z: i32
+
+struct Face:
+    v:   [4]u8
+    col: u32
+
+const S: i32 = 60
+
+const CUBE: [8]V3 = [
+    V3(-S, -S, -S), V3( S, -S, -S), V3( S,  S, -S), V3(-S,  S, -S),
+    V3(-S, -S,  S), V3( S, -S,  S), V3( S,  S,  S), V3(-S,  S,  S),
+]
+
+const FACES: [6]Face = [
+    Face([0, 1, 2, 3], 0x0000FF), Face([5, 4, 7, 6], 0x00FF00),
+    Face([4, 0, 3, 7], 0xFF0000), Face([1, 5, 6, 2], 0x00FFFF),
+    Face([4, 5, 1, 0], 0xFF00FF), Face([6, 7, 3, 2], 0xFFFF00),
+]
+
+@inline
+fn gp0(w: u32):
+    while (*GP1 & (1 << 26)) == 0: pass
+    *GP0 = w
+
+fn vsync():
+    while (*I_STAT & 1) == 0: pass
+    *I_STAT = ~1
+
+fn isin(a: i32) -> i32:
+    a = a & 255
+    if a < 128:
+        return a * (128 - a)
+    a -= 128
+    return -(a * (128 - a))
+
+fn icos(a: i32) -> i32:
+    return isin(a + 64)
+
+fn xy(x: i32, y: i32) -> u32:
+    return (u32(y) << 16) | (u32(x) & 0xFFFF)
+
+fn init_gpu():
+    *GP1 = 0x00000000
+    *GP1 = 0x03000000
+    *GP1 = 0x04000001
+    *GP1 = 0x08000001
+    *GP1 = 0x06000000 | 0x260 | ((0x260 + 320 * 8) << 12)
+    *GP1 = 0x07000000 | 0x10 | (0x100 << 10)
+
+@export("main")
+fn main() -> i32:
+    init_gpu()
+    var cur: i32 = 0
+    var t: i32 = 0
+
+    while true:
+        var by = cur * 240
+        gp0(0xE3000000 | u32(by << 10))
+        gp0(0xE4000000 | 319 | u32((by + 239) << 10))
+        gp0(0xE5000000 | u32(by << 11))
+        gp0(0x02202020)
+        gp0(xy(0, by))
+        gp0(xy(320, 240))
+
+        var sy = isin(t)
+        var cy = icos(t)
+        var sx = isin(t / 2)
+        var cx = icos(t / 2)
+
+        var px: [8]i32
+        var py: [8]i32
+        for i in range(8):
+            var p = CUBE[i]
+            var x = (p.x * cy - p.z * sy) >> 12
+            var z = (p.x * sy + p.z * cy) >> 12
+            var y = (p.y * cx - z * sx) >> 12
+            z = ((p.y * sx + z * cx) >> 12) + 220
+            px[i] = 160 + x * 256 / z
+            py[i] = 120 + y * 256 / z
+
+        for f in FACES:
+            var a = f.v[0]
+            var b = f.v[1]
+            var c = f.v[2]
+            var d = f.v[3]
+            var cross = (px[b] - px[a]) * (py[c] - py[a]) - (py[b] - py[a]) * (px[c] - px[a])
+            if cross <= 0:
+                continue
+            gp0(0x20000000 | f.col)
+            gp0(xy(px[a], py[a]))
+            gp0(xy(px[b], py[b]))
+            gp0(xy(px[c], py[c]))
+            gp0(0x20000000 | f.col)
+            gp0(xy(px[a], py[a]))
+            gp0(xy(px[c], py[c]))
+            gp0(xy(px[d], py[d]))
+        vsync()
+        *GP1 = 0x05000000 | u32(by << 10)
+        cur = cur ^ 1
+        t += 2
+    return 0
